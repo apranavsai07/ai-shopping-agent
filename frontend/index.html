@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Shopping Agent</title>
+<style>
+  * { box-sizing: border-box; font-family: Arial, sans-serif; }
+  body { background: #0f1117; color: #e6e6e6; display: flex; justify-content: center; padding: 40px 20px; }
+  .container { width: 100%; max-width: 700px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.sub { color: #9aa0a6; margin-top: 0; margin-bottom: 24px; }
+  input {
+    width: 100%; padding: 12px; border-radius: 8px;
+    border: 1px solid #333; background: #1a1d26; color: #fff; font-size: 14px;
+  }
+  button {
+    margin-top: 12px; padding: 10px 20px; border: none; border-radius: 8px;
+    background: #4f7cff; color: white; font-size: 14px; cursor: pointer;
+  }
+  button.secondary { background: #333; }
+  button:disabled { background: #444; cursor: not-allowed; }
+  .summary {
+    margin-top: 24px; padding: 14px; border-radius: 8px; background: #1a1d26;
+    border: 1px solid #2a2d38; color: #ccc; line-height: 1.5;
+  }
+  .card {
+    margin-top: 16px; padding: 16px; border-radius: 10px; background: #1a1d26; border: 1px solid #2a2d38;
+  }
+  .card h3 { margin: 0 0 6px 0; }
+  .price { color: #6fdc6f; font-weight: bold; }
+  .specs { margin: 10px 0; }
+  .spec-chip {
+    background: #2a3f5f; color: #8ecdf7; padding: 3px 10px; border-radius: 6px;
+    font-size: 12px; margin: 3px 4px 0 0; display: inline-block;
+  }
+  .why { color: #aaa; font-size: 13px; font-style: italic; margin-top: 6px; }
+  a { color: #66b3ff; font-size: 13px; }
+  .error { color: #ff6b6b; margin-top: 16px; }
+  .loading { color: #9aa0a6; margin-top: 16px; }
+  .hist-item {
+    margin-top: 10px; padding: 10px 14px; border-radius: 8px; background: #1a1d26;
+    border: 1px solid #2a2d38; cursor: pointer;
+  }
+  .hist-item:hover { border-color: #4f7cff; }
+  .hist-date { color: #888; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>AI Shopping Agent</h1>
+  <p class="sub">Describe what you're looking for — I'll search, compare, and recommend.</p>
+
+  <input type="text" id="query" placeholder='e.g. Find the best laptop for AI development under ₹70,000'>
+  <br>
+  <button type="button" id="submitBtn" onclick="search()">Search</button>
+  <button type="button" class="secondary" onclick="loadHistory()">View History</button>
+
+  <div id="result"></div>
+  <div id="history"></div>
+</div>
+
+<script>
+async function search() {
+  const query = document.getElementById("query").value.trim();
+  const resultDiv = document.getElementById("result");
+  const btn = document.getElementById("submitBtn");
+
+  if (!query) {
+    resultDiv.innerHTML = '<p class="error">Please enter a request.</p>';
+    return;
+  }
+
+  document.getElementById("history").innerHTML = "";
+  btn.disabled = true;
+      btn.textContent = "Working...";
+  const loadingMessages = [
+    "🔍 Searching the web...",
+    "📊 Comparing prices...",
+    "🧠 Analyzing best matches...",
+    "✨ Finalizing recommendations..."
+  ];
+  let msgIndex = 0;
+  resultDiv.innerHTML = `<p class="loading">${loadingMessages[0]}</p>`;
+  const dotInterval = setInterval(() => {
+    msgIndex = (msgIndex + 1) % loadingMessages.length;
+    resultDiv.innerHTML = `<p class="loading">${loadingMessages[msgIndex]}</p>`;
+  }, 3000);
+
+  try {
+    const res = await fetch("http://127.0.0.1:8000/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query })
+    });
+
+    if (!res.ok) throw new Error("Server error: " + res.status);
+        clearInterval(dotInterval);
+    const data = await res.json();
+
+    if (data.error) {
+      resultDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+      return;
+    }
+
+    let html = `<div class="summary"><strong>Summary:</strong> ${data.summary}</div>`;
+    data.recommendations.forEach(p => {
+      const specs = p.key_details.split(",").map(s =>
+        `<span class="spec-chip">${s.trim()}</span>`
+      ).join("");
+      html += `
+        <div class="card">
+          <h3>${p.name}</h3>
+          <div class="price">${p.price}</div>
+          <div class="specs">${specs}</div>
+          <div class="why">${p.why_recommended}</div>
+          <a href="${p.source_link}" target="_blank">View Source →</a>
+        </div>
+      `;
+    });
+    resultDiv.innerHTML = html;
+  } catch (err) {
+        clearInterval(dotInterval);
+    resultDiv.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Search";
+  }
+}
+
+async function loadHistory() {
+  document.getElementById("result").innerHTML = "";
+  const res = await fetch("http://127.0.0.1:8000/history");
+  const data = await res.json();
+  let html = "<h3 style='margin-top:24px;'>Past Searches</h3>";
+  if (data.length === 0) html += "<p style='color:#888;'>No past searches yet.</p>";
+  data.forEach((h, i) => {
+    html += `<div class="hist-item" onclick="showHistoryResult(${i})"><strong>${h.query}</strong><br><span class="hist-date">${h.created_at}</span></div>`;
+  });
+  document.getElementById("history").innerHTML = html;
+  window.historyData = data;
+}
+
+function showHistoryResult(index) {
+  const item = window.historyData[index];
+  const data = JSON.parse(item.results);
+  let html = `<div class="summary"><strong>Summary:</strong> ${data.summary}</div>`;
+  data.recommendations.forEach(p => {
+    const specs = p.key_details.split(",").map(s => `<span class="spec-chip">${s.trim()}</span>`).join("");
+    html += `
+      <div class="card">
+        <h3>${p.name}</h3>
+        <div class="price">${p.price}</div>
+        <div class="specs">${specs}</div>
+        <div class="why">${p.why_recommended}</div>
+        <a href="${p.source_link}" target="_blank">View Source →</a>
+      </div>
+    `;
+  });
+  document.getElementById("result").innerHTML = html;
+  document.getElementById("history").innerHTML = "";
+}
+</script>
+</body>
+</html>
